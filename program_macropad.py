@@ -192,7 +192,7 @@ DEFAULT_CONFIG = {
 
 
 def _parse_single_binding(value):
-    """Parse one keystroke: "a", "ctrl+c", or {"key": "c", "mod": "ctrl"}."""
+    """Parse one keystroke: "a", "ctrl+c", "ctrl", or {"key": "c", "mod": "ctrl"}."""
     if isinstance(value, str):
         if "+" in value:
             parts = value.lower().split("+")
@@ -202,7 +202,15 @@ def _parse_single_binding(value):
                 if p not in MODIFIER:
                     raise ValueError(f"Unknown modifier {p!r}. Known: {', '.join(MODIFIER.keys())}")
                 mod_val |= MODIFIER[p]
-            return (parts[-1].strip(), mod_val)
+            last = parts[-1].strip()
+            # Last part can be a key ("ctrl+c") or another modifier ("ctrl+shift")
+            if last in MODIFIER:
+                mod_val |= MODIFIER[last]
+                return ("none", mod_val)
+            return (last, mod_val)
+        # Bare modifier name (e.g. "ctrl") -> modifier-only, no keycode
+        if value.lower().strip() in MODIFIER:
+            return ("none", MODIFIER[value.lower().strip()])
         return (value, 0)
     if isinstance(value, dict):
         return (value.get("key", "none"), value.get("mod", 0))
@@ -224,9 +232,10 @@ def load_config(path):
     """
     Load a JSON config file.
 
-    Returns (bindings, leds) where:
+    Returns (bindings, leds, delays) where:
       bindings: {layer_int: [(button_id, [(key, mod), ...]), ...]}
-      leds: {layer_int: (effect, color)} or empty dict if no LED config
+      leds: {layer_int: (effect, color)}
+      delays: {layer_int: delay_ms}
     """
     with open(path) as f:
         raw = json.load(f)
@@ -234,6 +243,7 @@ def load_config(path):
     layers_data = raw.get("layers", {})
     bindings = {}
     leds = {}
+    delays = {}
 
     for layer_str, layer_dict in layers_data.items():
         layer_num = int(layer_str)
@@ -246,19 +256,24 @@ def load_config(path):
         if led_cfg is not None:
             leds[layer_num] = led_cfg
 
-        # Extract button bindings (skip non-button keys like "led", "_comment")
+        # Extract macro delay (if present)
+        delay = layer_dict.get("delay")
+        if delay is not None:
+            delays[layer_num] = int(delay)
+
+        # Extract button bindings (skip non-button keys like "led", "delay", etc.)
         layer_bindings = []
         for btn_name, value in layer_dict.items():
             btn_name_lower = btn_name.lower().strip()
             if btn_name_lower not in BUTTON_NAMES:
-                continue  # skip "led", "_comment", etc.
+                continue
             btn_id = BUTTON_NAMES[btn_name_lower]
             keys = parse_binding(value)
             layer_bindings.append((btn_id, keys))
 
         bindings[layer_num] = layer_bindings
 
-    return bindings, leds
+    return bindings, leds, delays
 
 
 def generate_config(path):
@@ -392,6 +407,19 @@ def write_layer_config(ep, layer, config_byte, config_data=None):
     time.sleep(0.2)
 
 
+def write_macro_delay(ep, layer, delay_ms):
+    """Set the macro keystroke delay for a layer (0 to disable)."""
+    delay_ms = max(0, min(0xFFFF, int(delay_ms)))
+    payload = [
+        0x03, 0xFD, 0x00, layer & 0xFF,
+        0x05, delay_ms & 0xFF, (delay_ms >> 8) & 0xFF,
+    ]
+    payload += [0] * (REPORT_SIZE - len(payload))
+    send(ep, bytes(payload[:REPORT_SIZE]))
+    send(ep, make_report(0x03, 0xFD, 0xFE, 0xFF))
+    time.sleep(0.2)
+
+
 def write_all_layer_configs(ep, layers, leds=None, led_only=False):
     """
     Send layer configs for each programmed layer.
@@ -497,13 +525,11 @@ def print_config(ep_out, ep_in):
 
 # --- Program all buttons ---
 
-def program_from_config(ep, config, leds=None):
-    """
-    Program buttons from parsed config: {layer: [(button_id, [(key, mod), ...]), ...]}.
-    Then send layer configs (required for knob changes to persist).
+def program_from_config(ep, config, leds=None, delays=None):
+    """Program buttons, macro delays, and layer configs from parsed config."""
+    if delays is None:
+        delays = {}
 
-    leds: optional {layer_int: (effect, color)} for per-layer LED settings.
-    """
     total = 0
     for layer_num in sorted(config.keys()):
         bindings = config[layer_num]
@@ -521,6 +547,12 @@ def program_from_config(ep, config, leds=None):
             btn_name = _BUTTON_ID_TO_NAME.get(btn_id, f"0x{btn_id:02x}")
             key_desc = _describe_keys(keys)
             print(f"    {btn_name} -> {key_desc}")
+
+        # Set macro delay for this layer
+        if layer_num in delays:
+            delay_ms = delays[layer_num]
+            write_macro_delay(ep, layer_num, delay_ms)
+            print(f"    macro delay: {delay_ms}ms")
 
     print(f"  Wrote {total} buttons total.")
 
@@ -653,17 +685,22 @@ def main():
         return
 
     print(f"  Loading config: {config_path}")
-    config, leds = load_config(config_path)
+    config, leds, delays = load_config(config_path)
     if not config:
         print("  No layers/bindings found in config.", file=sys.stderr)
         sys.exit(1)
 
     total_bindings = sum(len(b) for b in config.values())
-    led_msg = f", {len(leds)} LED setting(s)" if leds else ""
-    print(f"  {len(config)} layer(s), {total_bindings} binding(s) to write{led_msg}")
+    extras = []
+    if leds:
+        extras.append(f"{len(leds)} LED setting(s)")
+    if delays:
+        extras.append(f"{len(delays)} delay(s)")
+    extra_msg = f", {', '.join(extras)}" if extras else ""
+    print(f"  {len(config)} layer(s), {total_bindings} binding(s) to write{extra_msg}")
 
     dev, ep_out, ep_in = open_device()
-    program_from_config(ep_out, config, leds=leds)
+    program_from_config(ep_out, config, leds=leds, delays=delays)
     save_to_board(ep_out)
 
     # Verify writes by reading back layer 1 knob buttons

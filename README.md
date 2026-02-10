@@ -44,6 +44,7 @@ Edit `macropad.json`. Each layer maps button names to key bindings, with an opti
   "layers": {
     "1": {
       "led": {"color": "blue", "effect": "static"},
+      "delay": 50,
       "key1": "a",
       "key2": "ctrl+c",
       "key3": ["h", "e", "l", "l", "o"],
@@ -75,6 +76,16 @@ Edit `macropad.json`. Each layer maps button names to key bindings, with an opti
 **Modifiers:** `ctrl`, `shift`, `alt`, `meta` (or `win`/`cmd`/`gui`)
 
 **Keys:** `a`-`z`, `0`-`9`, `f1`-`f24`, `enter`, `esc`, `tab`, `space`, `backspace`, `delete`, `insert`, `home`, `end`, `pageup`, `pagedown`, `up`, `down`, `left`, `right`, `minus`, `equal`, `lbracket`, `rbracket`, `backslash`, `semicolon`, `quote`, `grave`, `comma`, `period`, `slash`, `capslock`, `printscreen`, `scrolllock`, `pause`, `mute`, `volume_up`, `volume_down`
+
+### Macro delay
+
+Add a per-layer delay between keystrokes in multi-key macros (in milliseconds):
+
+```json
+"delay": 50
+```
+
+Set to `0` or omit to disable. Applies to all macros on that layer.
 
 ### LEDs
 
@@ -109,6 +120,8 @@ Reverse-engineered from USB captures of the Windows `MINI_KEYBOARD.exe` app. All
 **Write a button:** `03 fd <button_id> <layer> 01 00 00 00 00 00 <type> <mod> <key> ...` then `03 fd fe ff` (commit), 200ms delay.
 
 **Layer config (LEDs):** `03 fe b0 <layer> 08 <60 bytes>` then commit. Byte 12 = `(color << 4) | effect`.
+
+**Macro delay:** `03 fd 00 <layer> 05 <delay_lo> <delay_hi>` then commit. 16-bit LE milliseconds.
 
 **Save to flash:** `03 ef 03`
 
