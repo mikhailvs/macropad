@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.hex
+macropad_sent_packets.*
+
+# Reverse-engineering artifacts (not needed to use the tool)
+capture
+capture_*
+all_interrupt_data.txt
+MINI_KEYBOARD.exe.c
