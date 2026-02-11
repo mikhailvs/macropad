@@ -1,6 +1,6 @@
 # macropad
 
-Program the **12-key + 2-knob USB macro pad** (VID:PID `1189:8840`, WCH CH552G) from Linux/macOS with Python. No Windows app needed.
+Program the cheap **[12-key + 2-knob USB macro pad*](https://www.amazon.com/dp/B0DCP4CVNL?th=1)* (VID:PID `1189:8840`, WCH CH552G) from Linux/macOS with Python. No Windows app needed.
 
 Supports single keys, modifier combos (`ctrl+c`), multi-key macros (`["h","e","l","l","o"]`), per-layer LED colors, and 3 layers with 12 keys + 2 rotary encoders each.
 
